@@ -1,0 +1,60 @@
+# 此处规定CMake最低版本为3.22，与CubeMX对其
+cmake_minimum_required(VERSION 3.22)
+
+project(segger_rtt LANGUAGES C)
+
+# 添加RTT源文件
+set(RTT_CORE_SOURCES
+        RTT/SEGGER_RTT.c
+        RTT/SEGGER_RTT_printf.c
+)
+
+# 汇编文件（仅ARMv7-M架构需要，如STM32F1/F4等）
+option(USE_ARMV7M_ASM "Use ARMv7-M assembly optimizations" ON)
+if(USE_ARMV7M_ASM)
+    set(RTT_ASM_SOURCES
+            RTT/SEGGER_RTT_ASM_ARMv7M.S
+    )
+else()
+    set(RTT_ASM_SOURCES "")
+endif()
+
+# 系统调用文件（根据编译器自动选择）
+set(RTT_SYSCALL_SOURCES)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU")          # GCC编译器（STM32CubeIDE等）
+    list(APPEND RTT_SYSCALL_SOURCES Syscalls/SEGGER_RTT_Syscalls_GCC.c)
+elseif(CMAKE_C_COMPILER_ID MATCHES "IAR")      # IAR编译器
+    list(APPEND RTT_SYSCALL_SOURCES Syscalls/SEGGER_RTT_Syscalls_IAR.c)
+elseif(CMAKE_C_COMPILER_ID MATCHES "ARMClang") # KEIL MDK（ARMClang）
+    list(APPEND RTT_SYSCALL_SOURCES Syscalls/SEGGER_RTT_Syscalls_KEIL.c)
+elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")    # SEGGER Embedded Studio
+    list(APPEND RTT_SYSCALL_SOURCES Syscalls/SEGGER_RTT_Syscalls_SES.c)
+else()
+    message(WARNING "Unsupported compiler: ${CMAKE_C_COMPILER_ID} - RTT syscalls disabled")
+endif()
+
+# 创建静态库
+add_library(segger_rtt STATIC
+        ${RTT_CORE_SOURCES}
+        ${RTT_ASM_SOURCES}
+        ${RTT_SYSCALL_SOURCES}
+)
+
+# 设置头文件搜索路径
+target_include_directories(segger_rtt
+        PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/RTT>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/Config>
+)
+
+# 编译选项优化（仅针对嵌入式编译器）
+target_compile_options(segger_rtt PRIVATE
+        -Wall
+        -Wextra
+        -Wno-unused-parameter
+        -Wno-sign-compare
+        -ffunction-sections    # 每个函数放在独立段，链接时可剔除未使用函数
+        -fdata-sections        # 每个数据放在独立段，链接时可剔除未使用数据
+        -Wl
+        --gc-sections          # 启用垃圾回收未使用的节
+)
